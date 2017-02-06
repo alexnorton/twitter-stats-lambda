@@ -35,7 +35,13 @@ exports.handler = (event, context, callback) => {
         statsFile.stats.push([(new Date()).toISOString(), tweets.followers_count]);
 
         s3.upload(
-          { Bucket: s3bucket, Key: s3key, Body: JSON.stringify(statsFile) },
+          {
+            Bucket: s3bucket,
+            Key: s3key,
+            Body: JSON.stringify(statsFile),
+            ContentDisposition: 'inline',
+            ContentType: 'application/json',
+          },
           (uploadError) => {
             if (uploadError) {
               callback(uploadError);
