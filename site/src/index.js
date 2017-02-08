@@ -1,6 +1,13 @@
+const d3 = require('d3');
+const MG = require('metrics-graphics');
+
+require('bootstrap/dist/css/bootstrap.css');
+require('metrics-graphics/dist/metricsgraphics.css');
+require('./index.css');
+
 const renderChart = (data) => {
   MG.data_graphic({
-    title: "Followers",
+    title: 'Followers',
     data: data.stats.map(s => ({
       date: new Date(s[0]),
       followers: s[1],
@@ -11,7 +18,7 @@ const renderChart = (data) => {
     x_accessor: 'date',
     y_accessor: 'followers',
     min_y_from_data: true,
-    inflator: 1000/999,
+    inflator: 1000 / 999,
     yax_format: d3.format(','),
   });
 };
