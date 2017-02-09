@@ -8,47 +8,100 @@ const kms = new AWS.KMS({ region: 'eu-west-1' });
 
 const screenName = 'BBC_News_Labs';
 const s3bucket = 'twitter-stats';
-const s3key = 'stats.json';
+const s3key = 'stats-new.json';
 
-exports.handler = (event, context, callback) => {
+const getTwitterClient = () => {
   const credentialsFile = fs.readFileSync(path.join(__dirname, 'credentials.json-encrypted'));
 
-  kms.decrypt({ CiphertextBlob: credentialsFile }, (credentialsError, data) => {
-    if (credentialsError) {
-      callback(credentialsError);
-    }
-
-    const credentials = JSON.parse(data.Plaintext.toString());
-
-    const twitterClient = new Twitter(credentials);
-
-    s3.getObject({ Bucket: s3bucket, Key: s3key }, (downloadError, statsData) => {
-      if (downloadError) {
-        callback(downloadError);
-      }
-      const statsFile = JSON.parse(statsData.Body.toString('utf-8'));
-
-      twitterClient.get('users/show', { screen_name: screenName }, (twitterError, tweets) => {
-        if (twitterError) {
-          callback(twitterError);
-        }
-        statsFile.stats.push([(new Date()).toISOString(), tweets.followers_count]);
-
-        s3.upload(
-          {
-            Bucket: s3bucket,
-            Key: s3key,
-            Body: JSON.stringify(statsFile),
-            ContentDisposition: 'inline',
-            ContentType: 'application/json',
-          },
-          (uploadError) => {
-            if (uploadError) {
-              callback(uploadError);
-            }
-            callback(null, `Success!\nFollower count: ${tweets.followers_count}\nNumber of records: ${statsFile.stats.length}`);
-          });
-      });
+  return kms.decrypt({ CiphertextBlob: credentialsFile }).promise()
+    .then((data) => {
+      const credentials = JSON.parse(data.Plaintext.toString());
+      const twitterClient = new Twitter(credentials);
+      return twitterClient;
     });
-  });
+};
+
+const twitterRequest = (client, method, params) => (
+  new Promise((resolve, reject) => {
+    client.get(method, params, (error, result) => {
+      if (error) {
+        reject(error);
+      }
+      resolve(result);
+    });
+  })
+);
+
+const getFollowers = client => (
+  twitterRequest(client, 'users/show', { screen_name: screenName })
+    .then(result => result.followers_count)
+);
+
+const getTweets = (client, sinceId) => (
+  twitterRequest(client, 'statuses/user_timeline', { screen_name: screenName, count: 200, since_id: sinceId })
+    .then(tweets => tweets
+      .map(t => ({
+        id: t.id_str,
+        date: new Date(t.created_at),
+        retweet: t.retweeted_status !== undefined,
+        reply: t.in_reply_to_screen_name !== null && t.in_reply_to_screen_name !== screenName,
+        text: t.text,
+      }))
+      .sort((t1, t2) => t1.date - t2.date)
+    )
+);
+
+const getPreviousStats = () => (
+  s3.getObject({ Bucket: s3bucket, Key: s3key }).promise()
+    .then(data => JSON.parse(data.Body.toString('utf-8')))
+    .catch((e) => {
+      if (e.name === 'NoSuchKey') {
+        return {
+          followers: [],
+          tweets: [],
+        };
+      }
+      throw e;
+    })
+);
+
+const getNewStats = previousStats => (
+  getTwitterClient()
+    .then(client => Promise.all([
+      getFollowers(client),
+      Promise.resolve(
+          previousStats.tweets
+            && previousStats.tweets.length > 0
+            && previousStats.tweets[previousStats.length - 1]
+        )
+        .then(sinceId => getTweets(client, sinceId || undefined))
+        .then(tweets => tweets.filter(t =>
+          previousStats.followers[0] && t.date > new Date(previousStats.followers[0].date)
+        )),
+    ]))
+    .then(results => ({
+      followers: previousStats.followers.concat([{
+        date: new Date(),
+        count: results[0],
+      }]),
+      tweets: previousStats.tweets.concat(results[1]),
+    }))
+);
+
+const uploadStats = (stats) => {
+  s3.upload({
+    Bucket: s3bucket,
+    Key: s3key,
+    Body: JSON.stringify(stats),
+    ContentDisposition: 'inline',
+    ContentType: 'application/json',
+  }).promise();
+};
+
+exports.handler = (event, context, callback) => {
+  getPreviousStats()
+    .then(previousStats => getNewStats(previousStats))
+    .then(stats => uploadStats(stats))
+    .then(() => callback(null, 'Success!'))
+    .catch(error => callback(error));
 };
