@@ -8,7 +8,7 @@ const kms = new AWS.KMS({ region: 'eu-west-1' });
 
 const screenName = 'BBC_News_Labs';
 const s3bucket = 'twitter-stats';
-const s3key = 'stats-new.json';
+const s3key = 'stats.json';
 
 const getTwitterClient = () => {
   const credentialsFile = fs.readFileSync(path.join(__dirname, 'credentials.json-encrypted'));
@@ -88,15 +88,15 @@ const getNewStats = previousStats => (
     }))
 );
 
-const uploadStats = (stats) => {
+const uploadStats = stats => (
   s3.upload({
     Bucket: s3bucket,
     Key: s3key,
     Body: JSON.stringify(stats),
     ContentDisposition: 'inline',
     ContentType: 'application/json',
-  }).promise();
-};
+  }).promise()
+);
 
 exports.handler = (event, context, callback) => {
   getPreviousStats()
