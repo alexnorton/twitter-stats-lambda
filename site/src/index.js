@@ -25,9 +25,10 @@ const renderChart = (data) => {
       date: new Date(t.date),
       label: '',
     })),
+    interpolate: d3.curveMonotoneX,
   });
 };
 
-fetch('https://s3-eu-west-1.amazonaws.com/twitter-stats/stats-new.json')
+fetch('https://s3-eu-west-1.amazonaws.com/twitter-stats/stats.json')
   .then(res => res.json())
   .then(data => renderChart(data));
